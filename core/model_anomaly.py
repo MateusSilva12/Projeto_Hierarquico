@@ -18,11 +18,11 @@ class AnomalyDetectionCNN(nn.Module):
             nn.ReLU(True),
         )
         
-        # Latent space - CORRIGIDO
+        # Latent space
         self.fc1 = nn.Linear(128 * 4 * 4, latent_dim)
         self.fc2 = nn.Linear(latent_dim, 128 * 4 * 4)
         
-        # Decoder - CORRIGIDO: canais consistentes
+        # Decoder
         self.decoder = nn.Sequential(
             nn.ConvTranspose2d(128, 64, 4, 2, 1),
             nn.ReLU(True),
@@ -41,7 +41,7 @@ class AnomalyDetectionCNN(nn.Module):
     
     def decode(self, z):
         z = self.fc2(z)
-        z = z.view(z.size(0), 128, 4, 4)  # ✅ CORRIGIDO: 128 canais (não 256)
+        z = z.view(z.size(0), 128, 4, 4)
         return self.decoder(z)
     
     def forward(self, x):
