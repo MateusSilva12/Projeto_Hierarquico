@@ -3,7 +3,6 @@ from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision import datasets, transforms
 import numpy as np
 import os
-from PIL import Image
 
 class AnomalyDataset(Dataset):
     def __init__(self, normal_images, anomaly_images=None, transform=None):
@@ -31,9 +30,9 @@ class AnomalyDataset(Dataset):
 
 def load_anomaly_data(dataset_name, num_clients, normal_class=0, anomaly_ratio=0.1, 
                      use_augmentation=True, use_transfer_learning=True, scenario="medium"):
-    """Carrega dados para detecção de anomalias com suporte a diferentes escalas"""
+    """Carrega dados para detecção de anomalias"""
     
-    # CONFIGURAÇÕES POR CENÁRIO
+    # Configurações por cenário
     scenario_configs = {
         "small": {"anomaly_ratio": 0.15, "data_ratio": 0.6},
         "medium": {"anomaly_ratio": 0.1, "data_ratio": 0.8}, 
@@ -44,7 +43,7 @@ def load_anomaly_data(dataset_name, num_clients, normal_class=0, anomaly_ratio=0
     anomaly_ratio = config["anomaly_ratio"]
     data_ratio = config["data_ratio"]
     
-    # DATA AUGMENTATION para treino
+    # Data augmentation para treino
     if use_augmentation:
         train_transform = transforms.Compose([
             transforms.Resize((64, 64)),
@@ -60,7 +59,7 @@ def load_anomaly_data(dataset_name, num_clients, normal_class=0, anomaly_ratio=0
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
     
-    # Transform para teste (sem augmentation)
+    # Transform para teste
     test_transform = transforms.Compose([
         transforms.Resize((64, 64)),
         transforms.ToTensor(),
@@ -68,18 +67,16 @@ def load_anomaly_data(dataset_name, num_clients, normal_class=0, anomaly_ratio=0
     ])
     
     if dataset_name == "CIFAR10":
-        # Carrega dados de TREINO com augmentation
+        # Carrega dados
         train_dataset = datasets.CIFAR10(root="./data", train=True, download=True, transform=train_transform)
-        
-        # Carrega dados de TESTE sem augmentation
         test_dataset = datasets.CIFAR10(root="./data", train=False, download=True, transform=test_transform)
         
-        # Aplica data_ratio para controlar quantidade de dados
+        # Aplica data_ratio
         total_train_size = len(train_dataset)
         used_train_size = int(total_train_size * data_ratio)
         train_dataset, _ = random_split(train_dataset, [used_train_size, total_train_size - used_train_size])
         
-        # Separa normais e anomalias do TREINO
+        # Separa normais e anomalias
         normal_images = []
         anomaly_images = []
         
@@ -89,7 +86,7 @@ def load_anomaly_data(dataset_name, num_clients, normal_class=0, anomaly_ratio=0
             else:
                 anomaly_images.append(img)
         
-        # Amostra anomalias baseado no ratio
+        # Amostra anomalias
         num_anomalies = int(len(normal_images) * anomaly_ratio)
         if len(anomaly_images) > num_anomalies:
             anomaly_images = anomaly_images[:num_anomalies]
@@ -97,7 +94,7 @@ def load_anomaly_data(dataset_name, num_clients, normal_class=0, anomaly_ratio=0
         # Cria dataset de treino
         full_train_dataset = AnomalyDataset(normal_images, anomaly_images, transform=None)
         
-        # Divide entre clientes (distribuição não-IID)
+        # Divide entre clientes
         total_len = len(full_train_dataset)
         len_per_client = total_len // num_clients
         remainder = total_len % num_clients
@@ -107,7 +104,7 @@ def load_anomaly_data(dataset_name, num_clients, normal_class=0, anomaly_ratio=0
             
         client_splits = random_split(full_train_dataset, lengths, generator=torch.Generator().manual_seed(42))
         
-        # Prepara dataset de TESTE
+        # Prepara dataset de teste
         test_normal = []
         test_anomaly = []
         
@@ -125,11 +122,8 @@ def load_anomaly_data(dataset_name, num_clients, normal_class=0, anomaly_ratio=0
     
     print(f"📊 Dataset {dataset_name} - Cenário {scenario}:")
     print(f"   👥 {len(normal_images)} normais, {len(anomaly_images)} anomalias")
-    print(f"   🎯 Data Ratio: {data_ratio}, Anomaly Ratio: {anomaly_ratio}")
-    print(f"   🔧 Augmentation: {'ON' if use_augmentation else 'OFF'}")
-    print(f"   🚀 Transfer Learning: {'ON' if use_transfer_learning else 'OFF'}")
     
-    # ✅ CORREÇÃO DOS IMPORTS DO MODELO
+    # Seleciona modelo
     if use_transfer_learning:
         from core.model_anomaly import SimpleAnomalyDetector
         model_class = SimpleAnomalyDetector
