@@ -1,0 +1,76 @@
+# Configurações dos Cenários de Experimentos
+scenarios:
+  small_scale:
+    total_clients: 20
+    edge_servers: 2
+    fog_servers: 1
+    clients_per_edge: 10
+    global_rounds: 15
+    local_rounds: 3
+    dataset: "CIFAR10"
+    normal_class: 0
+    
+  medium_scale:
+    total_clients: 50
+    edge_servers: 5
+    fog_servers: 2
+    clients_per_edge: 10
+    global_rounds: 20
+    local_rounds: 4
+    dataset: "CIFAR10" 
+    normal_class: 0
+    
+  large_scale:
+    total_clients: 100
+    edge_servers: 10
+    fog_servers: 3
+    clients_per_edge: 10
+    global_rounds: 25
+    local_rounds: 5
+    dataset: "CIFAR10"
+    normal_class: 0
+
+# Perfis de Hardware para Heterogeneidade
+hardware_profiles:
+  high_end:
+    cpu_cores: 8
+    memory_gb: 16
+    network_latency_ms: 10
+    packet_loss_percent: 0.1
+    epochs: 3
+    learning_rate: 0.01
+    batch_size: 32
+    
+  medium:
+    cpu_cores: 4
+    memory_gb: 8  
+    network_latency_ms: 50
+    packet_loss_percent: 0.5
+    epochs: 3
+    learning_rate: 0.008
+    batch_size: 16
+    
+  low_end:
+    cpu_cores: 2
+    memory_gb: 4
+    network_latency_ms: 100
+    packet_loss_percent: 1.0
+    epochs: 2
+    learning_rate: 0.005
+    batch_size: 8
+    
+  straggler:
+    cpu_cores: 1
+    memory_gb: 2
+    network_latency_ms: 200
+    packet_loss_percent: 5.0
+    epochs: 1
+    learning_rate: 0.003
+    batch_size: 4
+
+# Configurações de Experimentação
+experiment_settings:
+  seeds: 3
+  baseline_methods: ["centralized", "flat_fedavg", "fedprox"]
+  metrics: ["accuracy", "f1_score", "auc", "communication_cost", "training_time"]
+  significance_level: 0.05
