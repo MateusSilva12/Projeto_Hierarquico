@@ -9,9 +9,8 @@ import time
 import json
 import os
 import sys
-import psutil # Importar psutil para monitoramento de memória
+import psutil
 
-# Adiciona caminho para imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from core.model_anomaly import AnomalyDetectionCNN, SimpleAnomalyDetector
@@ -62,9 +61,13 @@ class CustomFedAvg(fl.server.strategy.FedAvg):
 print(f"🏢 Agregador: Iniciando em {aggregator_address}")
 print(f"👥 Aguardando {args.min_clients} clientes...")
 
+# ✅ CORREÇÃO: Estratégia completa
 strategy = CustomFedAvg(
-    min_available_clients=args.min_clients,
+    fraction_fit=1.0,
     min_fit_clients=args.min_clients,
+    min_available_clients=args.min_clients,
+    fraction_evaluate=1.0,
+    min_evaluate_clients=args.min_clients
 )
 
 # Servidor local
@@ -91,9 +94,12 @@ model = ModelClass(**model_config).to(DEVICE)
 class AggregatorClient(fl.client.NumPyClient):
     def get_parameters(self, config):
         print(f"🏢 Agregador: Enviando modelo para servidor")
+        # ✅ CORREÇÃO: Sempre retorna parâmetros válidos
         if final_parameters is not None:
             return final_parameters
-        return get_parameters(model)
+        else:
+            # Retorna parâmetros iniciais do modelo se não houve agregação
+            return get_parameters(model)
 
     def fit(self, parameters, config):
         return self.get_parameters(config), 1, {}
