@@ -85,9 +85,13 @@ class RealisticClient(fl.client.NumPyClient):
             # Limitar memória (monitoramento)
             memory_gb = self.profile["memory_gb"]
             self.memory_limit = memory_gb * 1024 * 1024 * 1024
+            print(f"ℹ️  Cliente {self.client_id}: Memória alvo: {memory_gb} GB")
             
         except Exception as e:
             print(f"⚠️  Emulação de hardware não suportada: {e}")
+
+    def get_properties(self, config):
+        return {"client_id": self.client_id, "profile": self.profile, "scenario": self.scenario}
 
     def get_parameters(self, config):
         return get_parameters(self.model)
@@ -132,6 +136,11 @@ class RealisticClient(fl.client.NumPyClient):
         
         print(f"👤 Cliente {self.client_id}: Acc={accuracy:.3f}, Time={training_time:.2f}s")
         
+        # Monitoramento de memória
+        process = psutil.Process(os.getpid())
+        mem_info = process.memory_info()
+        print(f"📊 Cliente {self.client_id}: Uso de memória: {mem_info.rss / (1024 * 1024):.2f} MB (RSS), {mem_info.vms / (1024 * 1024):.2f} MB (VMS)")
+
         return get_parameters(self.model), len(self.train_loader.dataset), {
             "accuracy": accuracy,
             "training_time": training_time,
@@ -143,9 +152,9 @@ class RealisticClient(fl.client.NumPyClient):
 if __name__ == "__main__":
     try:
         client = RealisticClient(args.client_id, args.profile, args.scenario)
-        fl.client.start_numpy_client(
+        fl.client.start_client(
             server_address=args.server_ip,
-            client=client,
+            client=client.to_client(),
         )
         print(f"✅ Cliente {args.client_id} finalizado")
     except Exception as e:
