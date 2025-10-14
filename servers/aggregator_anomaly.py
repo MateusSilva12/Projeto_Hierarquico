@@ -9,6 +9,7 @@ import time
 import json
 import os
 import sys
+import psutil # Importar psutil para monitoramento de memória
 
 # Adiciona caminho para imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -146,13 +147,17 @@ class AggregatorClient(fl.client.NumPyClient):
         
         print(f"🏢 Agregador: Loss: {avg_loss:.4f}, Acc: {accuracy:.4f}")
         
+        # Monitoramento de memória
+        process = psutil.Process(os.getpid())
+        mem_info = process.memory_info()
+        print(f"📊 Agregador: Uso de memória: {mem_info.rss / (1024 * 1024):.2f} MB (RSS), {mem_info.vms / (1024 * 1024):.2f} MB (VMS)")
         return avg_loss, total_samples, {"accuracy": accuracy}
 
 # Conecta ao servidor
 try:
-    fl.client.start_numpy_client(
+    fl.client.start_client(
         server_address=args.server_ip,
-        client=AggregatorClient(),
+        client=AggregatorClient().to_client(),
     )
     
     # Salva métricas
