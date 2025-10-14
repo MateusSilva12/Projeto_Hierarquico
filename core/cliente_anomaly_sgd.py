@@ -8,6 +8,7 @@ import os
 import sys
 import psutil
 from typing import Dict, List
+from torch.utils.data import DataLoader
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -63,7 +64,7 @@ class RealisticClient(fl.client.NumPyClient):
             use_transfer_learning=True, scenario=scenario
         )
         
-        from torch.utils.data import DataLoader
+        # ✅ CORREÇÃO: DataLoader já importado no topo
         self.train_loader = DataLoader(
             client_splits[client_id % len(client_splits)], 
             batch_size=16, 
