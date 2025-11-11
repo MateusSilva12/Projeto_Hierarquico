@@ -1,0 +1,16 @@
+# Pasta de dados (NÃO ENVIE O CIFAR10)
+data/
+
+# Pasta de resultados (NÃO ENVIE OS LOGS)
+results/
+
+# Arquivos de cache do Python
+__pycache__/
+*.pyc
+
+# Ambientes virtuais
+venv/
+.venv/
+
+# Arquivos do Windows
+*.Zone.Identifier
