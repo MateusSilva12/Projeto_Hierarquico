@@ -19,9 +19,10 @@ class TwoMachineExperiment:
         cloud_cmd = [
             sys.executable, 'servers/global_server_anomaly.py',
             '--rounds', '10',
-            '--min-clients', '2',
+            '--min-clients', '2', # Este valor será sobreescrito pelo scenario 'custom'
             '--architecture', 'hierarchical',
-            '--scenario', 'small',
+            # ✅ CORREÇÃO: Usar 'custom' (que espera 2 Fogs) em vez de 'small' (que espera 10)
+            '--scenario', 'custom',
             '--port', '9080'
         ]
         
@@ -39,7 +40,7 @@ class TwoMachineExperiment:
             sys.executable, 'servers/aggregator_anomaly.py',
             '--port', '9082',
             '--server-ip', f'{self.machine1_ip}:9081',
-            '--min-clients', '3'
+            '--min-clients', '3' # Correto, pois espera 5 clientes
         ]
         
         # Inicia processos
@@ -76,7 +77,7 @@ class TwoMachineExperiment:
             sys.executable, 'servers/aggregator_anomaly.py',
             '--port', '9084',
             '--server-ip', f'{self.machine2_ip}:9083',
-            '--min-clients', '3'
+            '--min-clients', '3' # Correto, pois espera 5 clientes
         ]
         
         processes = []
@@ -155,9 +156,11 @@ class TwoMachineExperiment:
             all_processes.extend(m1_processes)
             time.sleep(10)
             
-            # 2. Inicia servidores na Máquina 2  
-            m2_processes = self.run_on_machine2()
-            all_processes.extend(m2_processes)
+            # 2. Inicia servidores na Máquina 2 (Manualmente ou via SSH)
+            # Este script assume que a M2 será iniciada separadamente
+            print("🔔 Lembrete: Inicie os servidores (Fog2, Agg2) na Máquina 2 manualmente!")
+            # m2_processes = self.run_on_machine2() # Esta linha está desativada
+            # all_processes.extend(m2_processes)
             time.sleep(10)
             
             # 3. Inicia clientes
@@ -183,4 +186,5 @@ if __name__ == "__main__":
         machine2_ip="192.168.1.21"   # Máquina secundária
     )
     
-    orchestrator.run_experiment("teste_2_maquinas", duration_minutes=3)
+    # ✅ CORREÇÃO: Tempo suficiente para as 10 rodadas globais
+    orchestrator.run_experiment("teste_2_maquinas", duration_minutes=20)

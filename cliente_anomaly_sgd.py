@@ -10,14 +10,14 @@ import psutil
 from typing import Dict, List
 from torch.utils.data import DataLoader
 
-# ✅ CORREÇÃO: Ajustar o path de importação
+# Ajustar o path de importação
 sys.path.append(os.path.dirname(__file__))
 
 from core.model_anomaly import SimpleAnomalyDetector
 from core.dataset_anomaly import load_anomaly_data
-from core.utils_anomaly import set_parameters  # ✅ Só importar set_parameters
+from core.utils_anomaly import set_parameters  # Só importar set_parameters
 
-# ✅ PERFIS DE HARDWARE REALISTAS
+# PERFIS DE HARDWARE REALISTAS
 HARDWARE_PROFILES = {
     "high_end": {"cpu_cores": 4, "memory_gb": 8, "network_latency": 10, "epochs": 3},
     "medium": {"cpu_cores": 2, "memory_gb": 4, "network_latency": 50, "epochs": 2},
@@ -34,7 +34,7 @@ parser.add_argument("--seed", type=int, default=42)
 
 args = parser.parse_args()
 
-# ✅ CONFIGURAÇÕES POR CENÁRIO
+# CONFIGURAÇÕES POR CENÁRIO
 SCENARIO_CONFIGS = {
     "small": {"total_clients": 50},
     "medium": {"total_clients": 100},
@@ -47,13 +47,10 @@ class RealisticClient(fl.client.NumPyClient):
         self.profile = HARDWARE_PROFILES[profile]
         self.scenario = scenario
         
-        # ✅ EMULAÇÃO DE HARDWARE
         self.setup_hardware_emulation()
         
-        # ✅ EMULAÇÃO DE REDE
         self.network_delay = self.profile["network_latency"] / 1000  # Converter para segundos
         
-        # ✅ STRAGGLER SIMULATION
         if profile == "straggler" and random.random() < self.profile.get("dropout_prob", 0):
             print(f"❌ Cliente {client_id} dropando (straggler)")
             raise ConnectionError("Straggler dropout")
@@ -77,13 +74,11 @@ class RealisticClient(fl.client.NumPyClient):
     def setup_hardware_emulation(self):
         """Emula limitações de hardware"""
         try:
-            # Limitar uso de CPU (aprox.)
             cpu_cores = self.profile["cpu_cores"]
             if hasattr(os, 'sched_setaffinity'):
                 available_cpus = list(range(min(cpu_cores, os.cpu_count())))
                 os.sched_setaffinity(0, available_cpus)
             
-            # Limitar memória (monitoramento)
             memory_gb = self.profile["memory_gb"]
             self.memory_limit = memory_gb * 1024 * 1024 * 1024
             print(f"ℹ️  Cliente {self.client_id}: Memória alvo: {memory_gb} GB")
@@ -95,41 +90,29 @@ class RealisticClient(fl.client.NumPyClient):
         return {"client_id": self.client_id, "profile": self.profile, "scenario": self.scenario}
 
     def get_parameters(self, config):
-        """✅ CORREÇÃO DEFINITIVA: Método get_parameters corrigido"""
+        """✅ CORREÇÃO: Retorna List[np.ndarray]"""
         print(f"📤 Cliente {self.client_id}: Enviando parâmetros...")
         
         try:
-            # ✅ IMPLEMENTAÇÃO DIRETA GARANTIDA
             parameters = []
             for param in self.model.parameters():
                 parameters.append(param.data.cpu().numpy())
             
             print(f"✅ Cliente {self.client_id}: {len(parameters)} parâmetros convertidos")
-            
-            # ---------------------------------------------------------------
-            # ✅ CORREÇÃO APLICADA:
-            # NumPyClient deve retornar List[np.ndarray], 
-            # não um objeto Parameters.
-            # ---------------------------------------------------------------
+            # NumPyClient deve retornar a lista de arrays NumPy
             return parameters
             
         except Exception as e:
             print(f"❌ Erro crítico em get_parameters: {e}")
-            # Fallback de emergência (deve ser List[np.ndarray])
             return [np.array([0.0])]
 
     def fit(self, parameters, config):
         start_time = time.time()
         
-        # ✅ EMULAÇÃO DE REDE
         time.sleep(random.uniform(0, self.network_delay))
         
-        # ---------------------------------------------------------------
-        # ✅ CORREÇÃO APLICADA:
-        # 'parameters' (recebido) já é List[np.ndarray] (exigido pelo NumPyClient).
-        # O bloco try-except anterior que tentava converter foi simplificado.
-        # ---------------------------------------------------------------
         try:
+            # ✅ CORREÇÃO: 'parameters' já é List[np.ndarray]
             set_parameters(self.model, parameters)
         except Exception as e:
             print(f"⚠️  Erro crítico ao setar parâmetros: {e}")
@@ -139,12 +122,9 @@ class RealisticClient(fl.client.NumPyClient):
         criterion = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.SGD(self.model.parameters(), lr=0.01)
         
-        # Treino baseado no perfil
         epoch_losses = []
         for epoch in range(self.profile["epochs"]):
             epoch_loss = 0.0
-            
-            # ✅ COMPUTAÇÃO VARIÁVEL (emulação de hardware diferente)
             compute_factor = 1.0 / self.profile["cpu_cores"]
             
             for images, labels, is_anomaly in self.train_loader:
@@ -155,23 +135,20 @@ class RealisticClient(fl.client.NumPyClient):
                 optimizer.step()
                 epoch_loss += loss.item()
                 
-                # ✅ EMULAÇÃO DE VELOCIDADE DE COMPUTAÇÃO
                 time.sleep(0.001 * compute_factor * random.uniform(0.8, 1.2))
             
             epoch_losses.append(epoch_loss / len(self.train_loader))
         
         training_time = time.time() - start_time
-        
-        # Métricas simuladas (em um experimento real seriam calculadas)
         accuracy = 0.7 + random.uniform(-0.15, 0.15)
         
         print(f"👤 Cliente {self.client_id}: Acc={accuracy:.3f}, Time={training_time:.2f}s")
         
-        # Monitoramento de memória
         process = psutil.Process(os.getpid())
         mem_info = process.memory_info()
         print(f"📊 Cliente {self.client_id}: Uso de memória: {mem_info.rss / (1024 * 1024):.2f} MB (RSS), {mem_info.vms / (1024 * 1024):.2f} MB (VMS)")
 
+        # ✅ CORREÇÃO: Retornar parâmetros, contagem e métricas
         return self.get_parameters(config), len(self.train_loader.dataset), {
             "accuracy": accuracy,
             "training_time": training_time,

@@ -33,7 +33,8 @@ SCENARIO_CONFIGS = {
     "small": {"total_clients": 50, "min_clients": 10},
     "medium": {"total_clients": 100, "min_clients": 20}, 
     "large": {"total_clients": 200, "min_clients": 40},
-    "custom": {"total_clients": 4, "min_clients": 2}
+    # ✅ CORREÇÃO: 'custom' deve esperar 2 clientes (Fog1 e Fog2)
+    "custom": {"total_clients": 2, "min_clients": 2}
 }
 
 scenario_config = SCENARIO_CONFIGS[args.scenario]
