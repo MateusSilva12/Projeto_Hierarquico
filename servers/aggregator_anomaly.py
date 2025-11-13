@@ -19,6 +19,7 @@ from core.utils_anomaly import get_parameters, set_parameters
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Argumentos
 parser = argparse.ArgumentParser(description="Agregador Hierárquico")
 parser.add_argument("--port", type=int, required=True, help="Porta do agregador")
 parser.add_argument("--server-ip", type=str, default="127.0.0.1:8080", help="IP do servidor (Fog)")
@@ -30,7 +31,6 @@ args = parser.parse_args()
 
 torch.manual_seed(args.seed)
 aggregator_address = f"0.0.0.0:{args.port}"
-# ✅ CORREÇÃO: Esta variável agora armazena o *último* modelo agregado
 aggregator_parameters = None 
 
 aggregator_metrics = {
@@ -47,7 +47,6 @@ class CustomFedAvg(fl.server.strategy.FedAvg):
         aggregated_parameters, metrics = super().aggregate_fit(server_round, results, failures)
         
         if aggregated_parameters is not None:
-            # ✅ CORREÇÃO: Salva o modelo agregado mais recente
             aggregator_parameters = aggregated_parameters
             
             round_metrics = {
@@ -59,10 +58,13 @@ class CustomFedAvg(fl.server.strategy.FedAvg):
             
         return aggregated_parameters, metrics
 
-# Prepara modelo para avaliação (usado no evaluate)
+# ✅ CORREÇÃO: Carrega APENAS o dataset de teste (load_train=False)
+# Isso evita o processamento lento das 50.000 imagens de treino.
+print("... Carregando dataset de teste (rápido)...")
 _, test_dataset, ModelClass, model_config = load_anomaly_data(
     args.dataset, num_clients=1, normal_class=0,
-    use_transfer_learning=args.use_transfer_learning
+    use_transfer_learning=args.use_transfer_learning,
+    load_train=False, load_test=True 
 )
 test_loader = DataLoader(test_dataset, batch_size=32)
 model = ModelClass(**model_config).to(DEVICE)
@@ -70,7 +72,6 @@ model = ModelClass(**model_config).to(DEVICE)
 class AggregatorClient(fl.client.NumPyClient):
     
     def __init__(self):
-        # ✅ CORREÇÃO: O Agregador precisa manter seu próprio modelo
         self.model = ModelClass(**model_config).to(DEVICE)
         self.parameters = get_parameters(self.model)
 
@@ -82,44 +83,38 @@ class AggregatorClient(fl.client.NumPyClient):
         global aggregator_parameters
         
         print(f"🏢 Agregador [FIT]: Recebeu modelo do Fog. Iniciando rodada local para Clientes...")
-        # 1. Atualiza o modelo local com os parâmetros do Fog
         set_parameters(self.model, parameters)
         
-        # 2. Define a estratégia para os Clientes
         strategy = CustomFedAvg(
             fraction_fit=1.0,
             min_fit_clients=args.min_clients,
             min_available_clients=args.min_clients,
-            fraction_evaluate=0.0, # Avaliação só acontece no 'evaluate'
+            fraction_evaluate=0.0,
             min_evaluate_clients=args.min_clients,
-            # ✅ CORREÇÃO: Inicia o treino dos clientes com o modelo do Fog
             initial_parameters=fl.common.ndarrays_to_parameters(parameters) 
         )
         
-        # 3. Inicia um servidor de 1 rodada para os Clientes
+        # Inicia um servidor de 1 rodada para os Clientes
         fl.server.start_server(
             server_address=aggregator_address,
             config=fl.server.ServerConfig(num_rounds=1),
             strategy=strategy,
-            # ✅ CORREÇÃO: Impede o gRPC de reiniciar e dar erro
             server=fl.server.Server(client_manager=fl.server.SimpleClientManager(), strategy=strategy)
         )
         
-        # 4. 'aggregator_parameters' foi atualizado pela estratégia (CustomFedAvg)
         print(f"🏢 Agregador [FIT]: Agregação local concluída.")
         
-        # 5. Converte e retorna os parâmetros recém-agregados
         if aggregator_parameters is not None:
             self.parameters = fl.common.parameters_to_ndarrays(aggregator_parameters)
-            return self.parameters, len(test_loader.dataset), {} # Retorna o modelo atualizado
+            return self.parameters, len(test_loader.dataset), {}
         else:
-            return self.parameters, len(test_loader.dataset), {} # Retorna o modelo antigo se falhar
+            return self.parameters, len(test_loader.dataset), {}
 
     def evaluate(self, parameters: List[np.ndarray], config: Dict[str, str]):
         start_time = time.time()
         print(f"🏢 Agregador: Avaliando modelo...")
         
-        set_parameters(model, parameters) # Usa o modelo mais recente do Fog
+        set_parameters(model, parameters)
         model.eval()
 
         if isinstance(model, SimpleAnomalyDetector):
@@ -141,7 +136,6 @@ class AggregatorClient(fl.client.NumPyClient):
                     _, predicted = torch.max(outputs, 1)
                     correct_anomalies += (predicted == is_anomaly).sum().item()
                 else:
-                    # ... (lógica de anomalia)
                     _, reconstructions = model(images)
                     loss = criterion(reconstructions, images)
                     anomaly_scores = torch.mean(torch.pow(reconstructions - images, 2), dim=[1,2,3])
@@ -166,10 +160,6 @@ class AggregatorClient(fl.client.NumPyClient):
         print(f"📊 Agregador: Uso de memória: {mem_info.rss / (1024 * 1024):.2f} MB (RSS), {mem_info.vms / (1024 * 1024):.2f} MB (VMS)")
         return avg_loss, total_samples, {"accuracy": accuracy}
 
-# 🛑 CORREÇÃO: REMOVIDO o start_server() inicial.
-# O Agregador agora é APENAS um cliente (que age como servidor).
-
-# Conecta ao servidor (Fog)
 try:
     print(f"🏢 Agregador: Conectando ao Fog em {args.server_ip}...")
     fl.client.start_client(
