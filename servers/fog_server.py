@@ -5,7 +5,9 @@ import time
 import json
 import os
 import sys
-from typing import Dict, List
+# ✅ CORREÇÃO: Imports adicionais
+from typing import Dict, List, Tuple, Union
+from flwr.common import Metrics
 import numpy as np
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -32,7 +34,6 @@ print(f"🌫️  FOG SERVER: Porta {args.fog_port}")
 print(f"🔗 Conectando a {len(EDGE_SERVERS)} edges")
 print(f"📊 Cenário: {args.scenario}")
 
-# Configuração baseada no cenário
 SCENARIO_CONFIGS = {
     "small": {"fog_rounds": 3, "min_edges": 1},
     "medium": {"fog_rounds": 4, "min_edges": 2},
@@ -41,8 +42,24 @@ SCENARIO_CONFIGS = {
 
 fog_config = SCENARIO_CONFIGS[args.scenario]
 
-# ✅ VARIÁVEL GLOBAL para armazenar parâmetros agregados
+# ✅ CORREÇÃO: Variáveis globais para armazenar parâmetros E acurácia real
 fog_parameters = None
+fog_real_accuracy = 0.0
+fog_real_loss = 0.0
+
+# ✅ CORREÇÃO: Função para agregar métricas reais dos Agregadores
+def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
+    """Agrega acurácias reais recebidas dos Agregadores."""
+    accuracies = [num_examples * m["accuracy"] for num_examples, m in metrics if "accuracy" in m]
+    examples = [num_examples for num_examples, m in metrics if "accuracy" in m]
+    
+    if not examples:
+        return {}
+        
+    avg_accuracy = sum(accuracies) / sum(examples)
+    print(f"🌫️  Fog: Média real dos Agregadores: {avg_accuracy:.4f}")
+    return {"accuracy": avg_accuracy}
+
 
 class FogFedAvg(fl.server.strategy.FedAvg):
     def __init__(self, *args, **kwargs):
@@ -63,13 +80,27 @@ class FogFedAvg(fl.server.strategy.FedAvg):
         
         return aggregated_parameters, metrics
 
-# Servidor Fog
+    # ✅ CORREÇÃO: Capturar a acurácia real agregada
+    def aggregate_evaluate(self, server_round, results, failures):
+        """Agrega métricas reais e as salva globalmente."""
+        global fog_real_accuracy, fog_real_loss
+        loss, metrics = super().aggregate_evaluate(server_round, results, failures)
+        
+        if metrics and "accuracy" in metrics:
+            # Salva a acurácia real para o FogClient usar
+            fog_real_accuracy = metrics["accuracy"]
+            fog_real_loss = loss if loss is not None else 0.0
+        
+        return loss, metrics
+
+# ✅ CORREÇÃO: Servidor Fog usa a função de agregação
 fog_strategy = FogFedAvg(
     min_available_clients=len(EDGE_SERVERS),
     min_fit_clients=fog_config["min_edges"],
     fraction_fit=1.0,
     min_evaluate_clients=fog_config["min_edges"],
-    fraction_evaluate=1.0
+    fraction_evaluate=1.0,
+    evaluate_metrics_aggregation_fn=weighted_average # <-- ESSENCIAL
 )
 
 try:
@@ -82,37 +113,31 @@ try:
     
     print(f"✅ Agregação Fog finalizada. Conectando ao Cloud {args.cloud_ip}...")
     
-    # ✅ CORREÇÃO: Cliente Fog real para Cloud
     class FogClient(fl.client.NumPyClient):
         def get_parameters(self, config):
             print(f"🌫️  Fog: Enviando parâmetros para Cloud")
             if fog_parameters is not None:
                 try:
-                    # Converter Parameters para numpy arrays
                     parameters_ndarrays = fl.common.parameters_to_ndarrays(fog_parameters)
                     print(f"✅ Fog: {len(parameters_ndarrays)} parâmetros convertidos")
                     return parameters_ndarrays
                 except Exception as e:
                     print(f"⚠️  Erro ao converter fog_parameters: {e}")
-                    # Fallback: criar modelo simples
                     model = SimpleAnomalyDetector(in_channels=3, num_classes=2)
                     return get_parameters(model)
             else:
-                # Fallback se não houve agregação
                 model = SimpleAnomalyDetector(in_channels=3, num_classes=2)
                 return get_parameters(model)
         
         def fit(self, parameters, config):
-            # Fog não faz treinamento local, só repassa
             return self.get_parameters(config), 1, {"fog_layer": True}
         
         def evaluate(self, parameters, config):
-            # Avaliação simulada do Fog
-            accuracy = 0.75 + np.random.uniform(-0.1, 0.1)
-            print(f"🌫️  Fog: Accuracy simulada = {accuracy:.3f}")
-            return 1.0 - accuracy, 1, {"accuracy": accuracy, "fog_layer": True}
+            # ✅ CORREÇÃO: Parar de simular. Enviar a acurácia real.
+            print(f"🌫️  Fog: Repassando Acurácia Real ({fog_real_accuracy:.4f}) para o Cloud")
+            # Retorna a acurácia real que o aggregate_evaluate salvou
+            return fog_real_loss, 1, {"accuracy": fog_real_accuracy, "fog_layer": True}
     
-    # ✅ CORREÇÃO: Usar start_client em vez de start_numpy_client
     fl.client.start_client(
         server_address=args.cloud_ip,
         client=FogClient().to_client(),

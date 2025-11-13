@@ -5,7 +5,9 @@ import time
 import json
 import os
 import sys
-from typing import Dict, List
+# ✅ CORREÇÃO: Imports adicionais
+from typing import Dict, List, Tuple, Union
+from flwr.common import Metrics
 import numpy as np
 import psutil
 
@@ -14,7 +16,6 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from core.model_anomaly import SimpleAnomalyDetector
 from core.dataset_anomaly import load_anomaly_data
 
-# ✅ CORREÇÃO: Mudar porta padrão para 9080
 parser = argparse.ArgumentParser(description="Servidor Global com Baselines")
 parser.add_argument("--rounds", type=int, default=20)
 parser.add_argument("--min-clients", type=int, default=None, help="Número mínimo de clientes para uma rodada de treinamento. Se não especificado, usa o valor do cenário.")
@@ -24,26 +25,37 @@ parser.add_argument("--scenario", type=str, default="small",
                    choices=["small", "medium", "large", "custom"])
 parser.add_argument("--total-clients", type=int, default=None, help="Número total de clientes esperados. Se não especificado, usa o valor do cenário.")
 parser.add_argument("--seed", type=int, default=42)
-parser.add_argument("--port", type=int, default=9080, help="Porta do servidor global")  # ✅ NOVO: porta configurável
+parser.add_argument("--port", type=int, default=9080, help="Porta do servidor global")
 
 args = parser.parse_args()
 
-# ✅ CONFIGURAÇÕES POR CENÁRIO
 SCENARIO_CONFIGS = {
     "small": {"total_clients": 50, "min_clients": 10},
     "medium": {"total_clients": 100, "min_clients": 20}, 
     "large": {"total_clients": 200, "min_clients": 40},
-    # ✅ CORREÇÃO: 'custom' deve esperar 2 clientes (Fog1 e Fog2)
-    "custom": {"total_clients": 2, "min_clients": 2}
+    # ✅ CORREÇÃO: 'custom' espera os 2 Fogs
+    "custom": {"total_clients": 2, "min_clients": 2} 
 }
 
 scenario_config = SCENARIO_CONFIGS[args.scenario]
 
-# Sobrescreve min_clients e total_clients se forem passados como argumentos
 if args.min_clients is None:
     args.min_clients = scenario_config["min_clients"]
 if args.total_clients is None:
     args.total_clients = scenario_config["total_clients"]
+
+# ✅ CORREÇÃO: Função para agregar métricas (como acurácia)
+def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
+    """Agrega métricas de avaliação (como acurácia) pela média ponderada."""
+    # O FogClient envia '1' como num_examples, então isso é uma média simples.
+    accuracies = [num_examples * m["accuracy"] for num_examples, m in metrics if "accuracy" in m]
+    examples = [num_examples for num_examples, m in metrics if "accuracy" in m]
+    
+    if not examples:
+        return {}
+        
+    avg_accuracy = sum(accuracies) / sum(examples)
+    return {"accuracy": avg_accuracy}
 
 class ExperimentTracker:
     def __init__(self):
@@ -60,38 +72,30 @@ class ExperimentTracker:
         self.metrics["communication_costs"].append(comm_cost)
         self.metrics["round_times"].append(round_time)
         
-        # Detectar convergência (95% do máximo)
-        if len(self.metrics["round_accuracies"]) > 5:
+        # ✅ CORREÇÃO: Evitar convergência falsa em 0.0
+        if len(self.metrics["round_accuracies"]) > 5 and max(self.metrics["round_accuracies"]) > 0:
             max_acc = max(self.metrics["round_accuracies"])
             current_acc = self.metrics["round_accuracies"][-1]
             if current_acc >= 0.95 * max_acc and self.metrics["convergence_round"] is None:
                 self.metrics["convergence_round"] = len(self.metrics["round_accuracies"])
 
-# ✅ CORREÇÃO: Função para calcular custo de comunicação COMPATÍVEL
 def calculate_communication_cost(parameters):
-    """Calcula o custo de comunicação em bytes - CORRIGIDA"""
     if parameters is None:
         return 0
-    
     total_bytes = 0
     try:
-        # ✅ CORREÇÃO: Converter Parameters para numpy arrays primeiro
         if hasattr(parameters, 'tensors'):
-            # É um objeto Parameters do Flower
             parameters_list = fl.common.parameters_to_ndarrays(parameters)
         else:
-            # Já é uma lista de numpy arrays
             parameters_list = parameters
-            
         for param in parameters_list:
             total_bytes += param.nbytes
     except Exception as e:
         print(f"⚠️  Erro ao calcular custo de comunicação: {e}")
         total_bytes = 0
-        
     return total_bytes
 
-# ✅ CORREÇÃO: Estratégias que usam o tracker
+# ✅ CORREÇÃO: Estratégia de Tracking modificada
 class TrackingStrategy(fl.server.strategy.FedAvg):
     def __init__(self, tracker, **kwargs):
         super().__init__(**kwargs)
@@ -99,35 +103,45 @@ class TrackingStrategy(fl.server.strategy.FedAvg):
         self.round_start_time = None
 
     def aggregate_fit(self, server_round, results, failures):
-        round_start_time = time.time()
+        # 1. Salva o tempo e custo de comunicação
+        self.round_start_time = time.time()
         aggregated_parameters, metrics = super().aggregate_fit(server_round, results, failures)
-        
-        # Calcula métricas da rodada
-        round_time = time.time() - round_start_time
         comm_cost = calculate_communication_cost(aggregated_parameters)
         
-        # Busca accuracy dos resultados (se disponível)
-        accuracy = 0.0
-        if results:
-            # Tenta extrair accuracy do primeiro cliente
-            first_client_metrics = results[0][1].metrics
-            if first_client_metrics and "accuracy" in first_client_metrics:
-                accuracy = first_client_metrics["accuracy"]
-        
-        # Registra no tracker
-        self.tracker.record_round(accuracy, comm_cost, round_time)
+        # Registra no tracker (a acurácia será 0.0 por enquanto, será atualizada no evaluate)
+        self.tracker.record_round(accuracy=0.0, comm_cost=comm_cost, round_time=0.0) 
         
         return aggregated_parameters, metrics
 
+    # ✅ CORREÇÃO: Nova função para capturar a acurácia da avaliação
+    def aggregate_evaluate(self, server_round, results, failures):
+        """Agrega métricas de avaliação e ATUALIZA o tracker."""
+        aggregated_loss, aggregated_metrics = super().aggregate_evaluate(server_round, results, failures)
+        
+        if aggregated_metrics and "accuracy" in aggregated_metrics:
+            accuracy = aggregated_metrics["accuracy"]
+            
+            # ATUALIZA a acurácia da rodada que acabamos de registrar
+            if server_round - 1 < len(self.tracker.metrics["round_accuracies"]):
+                self.tracker.metrics["round_accuracies"][server_round - 1] = accuracy
+
+            # Calcula o tempo total da rodada (Fit + Evaluate)
+            round_time = time.time() - self.round_start_time if self.round_start_time else 0
+            if server_round - 1 < len(self.tracker.metrics["round_times"]):
+                self.tracker.metrics["round_times"][server_round - 1] = round_time
+        
+        return aggregated_loss, aggregated_metrics
+
 def get_strategy(architecture, tracker):
     base_config = {
-        "fraction_evaluate": 0.3,
+        "fraction_evaluate": 1.0, # ✅ CORREÇÃO: Avaliar em todos os Fogs (100%)
         "min_evaluate_clients": args.min_clients,
         "min_available_clients": args.total_clients,
+        # ✅ CORREÇÃO: Passar a função de agregação de métricas
+        "evaluate_metrics_aggregation_fn": weighted_average, 
     }
     
     if architecture == "flat":
-        # Flat-FedAvg (sem hierarquia)
         return TrackingStrategy(
             tracker=tracker,
             fraction_fit=0.3,
@@ -135,18 +149,17 @@ def get_strategy(architecture, tracker):
             **base_config
         )
     elif architecture == "centralized":
-        # Simulação de centralizado - todos os clientes participam
         return TrackingStrategy(
             tracker=tracker,
             fraction_fit=1.0,
             min_fit_clients=args.total_clients,
             **base_config
         )
-    else:
-        # Hierárquico padrão
+    else: # Hierárquico
         return TrackingStrategy(
             tracker=tracker,
-            fraction_fit=0.4,
+            # ✅ CORREÇÃO: Usar 1.0 para treinar em ambos os Fogs (100%)
+            fraction_fit=1.0, 
             min_fit_clients=args.min_clients,
             **base_config
         )
@@ -159,36 +172,22 @@ print(f"📊 Cenário: {args.scenario} ({args.total_clients} clientes)")
 print(f"🏗️  Arquitetura: {args.architecture}")
 print(f"🔄 Rodadas: {args.rounds}")
 print(f"👥 Mín. clientes: {args.min_clients}")
-print(f"🔌 Porta: {args.port}")  # ✅ MOSTRAR PORTA
+print(f"🔌 Porta: {args.port}")
 
 try:
     strategy = get_strategy(args.architecture, tracker)
     
-    # Configuração do servidor
     server_config = fl.server.ServerConfig(num_rounds=args.rounds)
-    
-    # ✅ CORREÇÃO: Usar porta configurável
     server_address = f"0.0.0.0:{args.port}"
     
-    # Histórico para análise de convergência
     history = fl.server.start_server(
-        server_address=server_address,  # ✅ PORTA CONFIGURÁVEL
+        server_address=server_address,
         config=server_config,
         strategy=strategy,
     )
     
-    # ✅ CORREÇÃO: Preenche métricas finais do histórico Flower
-    if history and hasattr(history, 'metrics_centralized'):
-        for round_num, metrics in history.metrics_centralized.items():
-            if 'accuracy' in metrics:
-                accuracy = metrics['accuracy']
-                if round_num - 1 < len(tracker.metrics["round_accuracies"]):
-                    tracker.metrics["round_accuracies"][round_num - 1] = accuracy
-    
-    # Processa resultados finais
     tracker.metrics["total_training_time"] = time.time() - start_time
     
-    # Salva resultados
     os.makedirs("results", exist_ok=True)
     results_file = f"results/{args.architecture}_{args.scenario}_seed_{args.seed}.json"
     
