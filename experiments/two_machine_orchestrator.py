@@ -182,7 +182,7 @@ class TwoMachineExperiment:
 if __name__ == "__main__":
     orchestrator = TwoMachineExperiment(
         machine1_ip="192.168.1.9",   # Máquina principal
-        machine2_ip="1.21"   # Máquina secundária (IP da M2)
+        machine2_ip="192.168.1.21"   # Máquina secundária (IP da M2)
     )
     
     # ✅ CORREÇÃO: Tempo suficiente (20 min) para 10 rodadas globais
